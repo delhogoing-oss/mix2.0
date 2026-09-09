@@ -264,25 +264,17 @@ DATA_LOG_CHANNEL = LOG_CHANNEL_ID
 
 MONGO_URI = os.environ.get("MONGO_URI", "")
 MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME", "minipix_bot")
-MONGO_CONNECT_TIMEOUT_MS = 5000
-MONGO_CACHE_TIMEOUT_MS = 3000
+MONGO_CONNECT_TIMEOUT_MS = int(os.environ.get("MONGO_CONNECT_TIMEOUT_MS", "15000"))
+MONGO_CACHE_TIMEOUT_MS = int(os.environ.get("MONGO_CACHE_TIMEOUT_MS", "5000"))
+MONGO_TLS_INSECURE = os.environ.get("MONGO_TLS_INSECURE", "1") == "1"
 MAX_GROQ_KEYS_PER_USER = 5
 
 GROQ_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-70b-versatile",
-    "llama-3.1-8b-instant",
-    "mixtral-8x7b-32768",
-    "gemma2-9b-it",
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
     "qwen/qwen3.8-27b",
     "qwen/qwen3.6-27b",
     "allam-2-7b",
-    "llama-3.2-90b-text-preview",
-    "llama-3.2-11b-text-preview",
-    "llama3-groq-70b-8192-tool-use-preview",
-    "llama3-groq-8b-8192-tool-use-preview",
 ]
 
 HEADERS_BASE = {
@@ -318,24 +310,68 @@ def _get_mongo() -> Tuple[Any, Any]:
     with _mongo_lock:
         if _mongo_client is not None and _mongo_db is not None:
             return _mongo_client, _mongo_db
+        last_err = None
+        attempts = []
+
+        try:
+            import certifi
+            _ca_file = certifi.where()
+        except Exception:
+            _ca_file = None
+
+        base_kwargs = {
+            "connectTimeoutMS": MONGO_CONNECT_TIMEOUT_MS,
+            "socketTimeoutMS": MONGO_CONNECT_TIMEOUT_MS,
+            "serverSelectionTimeoutMS": MONGO_CONNECT_TIMEOUT_MS,
+        }
+
+        attempts.append(dict(base_kwargs))
+
+        if _ca_file:
+            attempts.append(dict(base_kwargs, tlsCAFile=_ca_file))
+
+        if MONGO_TLS_INSECURE:
+            attempts.append(dict(base_kwargs, tlsAllowInvalidCertificates=True, tlsAllowInvalidHostnames=True))
+            if _ca_file:
+                attempts.append(dict(base_kwargs, tlsCAFile=_ca_file, tlsAllowInvalidCertificates=True, tlsAllowInvalidHostnames=True))
+
         try:
             from pymongo import MongoClient
-            _mongo_client = MongoClient(
-                MONGO_URI,
-                connectTimeoutMS=MONGO_CONNECT_TIMEOUT_MS,
-                socketTimeoutMS=MONGO_CONNECT_TIMEOUT_MS,
-                serverSelectionTimeoutMS=MONGO_CONNECT_TIMEOUT_MS,
-            )
-            _mongo_client.admin.command("ping")
-            _mongo_db = _mongo_client[MONGO_DB_NAME]
-            return _mongo_client, _mongo_db
         except Exception as e:
-            if not _mongo_warned:
-                logger.warning(f"MongoDB connection failed, using JSON fallback: {e}")
-                _mongo_warned = True
-            _mongo_client = None
-            _mongo_db = None
-            return None, None
+            last_err = e
+            attempts = []
+
+        for kwargs in attempts:
+            try:
+                _mongo_client = MongoClient(MONGO_URI, **kwargs)
+                _mongo_client.admin.command("ping")
+                _mongo_db = _mongo_client[MONGO_DB_NAME]
+                logger.info("MongoDB connected successfully" + (" (TLS insecure fallback)" if kwargs.get("tlsAllowInvalidCertificates") else ""))
+                return _mongo_client, _mongo_db
+            except Exception as e:
+                last_err = e
+                try:
+                    if _mongo_client is not None:
+                        _mongo_client.close()
+                except Exception:
+                    pass
+                _mongo_client = None
+                continue
+
+        if not _mongo_warned:
+            err_short = str(last_err) if last_err else "Unknown"
+            if len(err_short) > 500:
+                err_short = err_short[:500] + "..."
+            logger.warning(f"MongoDB connection failed, using JSON fallback: {err_short}")
+            logger.warning("Quick fix options:\n"
+                           "  1) MongoDB Atlas -> Network Access -> Add IP: 0.0.0.0/0 (Allow All)\n"
+                           "  2) MONGO_URI me user:pass correctly fill karo (special chars URL-encoded)\n"
+                           "  3) .env me MONGO_TLS_INSECURE=1 already set hai, IP whitelist check karo\n"
+                           "  4) Ya phir MONGO_URI= blank rakho -> JSON files use honge")
+            _mongo_warned = True
+        _mongo_client = None
+        _mongo_db = None
+        return None, None
 
 
 def _mongo_accounts_col():
