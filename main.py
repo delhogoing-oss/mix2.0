@@ -3,14 +3,15 @@
 MiniPix Unified Telegram Bot (SINGLE FILE)
 Combines:
   • main.py        – Telegram bot framework + Groq Quiz Solver (BEST)
-  • minipix_auto.py – Option 11: Browse ALL + SMART 4x REPEAT Auto-Watch (BEST)
+  • minipix_auto.py – Option 11: Browse ALL + SMART 8x REPEAT Auto-Watch (BEST)
 Features:
   • Per-user Telegram isolation + busy lock
   • threading.Lock for shared JSON I/O
   • Login via OTP, interactive token, or /tokenlogin <token>
-  • 4x reward (15→8→5→3 coins) with daily-cap-aware smart repeat
+  • 8x reward (15→8→5→3→2→2→2→2 coins) with daily-cap-aware smart repeat
   • Groq AI per-user API key for auto quiz (default gpt-oss-120b)
   • Full login / activity logs to DATA_LOG_CHANNEL
+  • App version 328 headers + updated API path compatibility
 """
 
 import os
@@ -252,8 +253,8 @@ ACCOUNTS_FILE = "minipix_accounts.json"
 USER_GROQ_FILE = "user_groq_keys.json"
 LOCK_FILE = "bot.lock"
 
-MAX_WATCHES_PER_EP = 4
-REWARDS_BY_WATCH = {1: 15, 2: 8, 3: 5, 4: 3}
+MAX_WATCHES_PER_EP = 8
+REWARDS_BY_WATCH = {1: 15, 2: 8, 3: 5, 4: 3, 5: 2, 6: 2, 7: 2, 8: 2}
 QUIZ_QUESTION_DELAY = 10
 
 GLOBAL_GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
@@ -270,16 +271,26 @@ MONGO_TLS_INSECURE = os.environ.get("MONGO_TLS_INSECURE", "1") == "1"
 MAX_GROQ_KEYS_PER_USER = 5
 
 GROQ_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-70b-versatile",
+    "llama-3.1-8b-instant",
+    "mixtral-8x7b-32768",
+    "gemma2-9b-it",
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
     "qwen/qwen3.8-27b",
     "qwen/qwen3.6-27b",
     "allam-2-7b",
+    "llama-3.2-90b-text-preview",
+    "llama-3.2-11b-text-preview",
+    "llama3-groq-70b-8192-tool-use-preview",
+    "llama3-groq-8b-8192-tool-use-preview",
 ]
 
 HEADERS_BASE = {
     "user-agent": "okhttp/4.12.0",
     "accept-encoding": "gzip",
+    "x-app-version": "328",
 }
 
 logging.basicConfig(
@@ -1682,7 +1693,7 @@ class MiniPixV2:
         )
         return True, "done"
 
-    # ─────────────────── OPTION 11: Browse ALL + SMART 4x REPEAT Watch (BEST)
+    # ─────────────────── OPTION 11: Browse ALL + SMART 8x REPEAT Watch (BEST)
     def browse_and_watch_all_smart_repeat(
         self,
         progress_callback=None,
@@ -1714,8 +1725,8 @@ class MiniPixV2:
                 )
 
         log(
-            f"🌐 Option 11 mode: Browse ALL + SMART 4x REPEAT\n"
-            f"Rewards/ep: 1st=+15 | 2nd=+8 | 3rd=+5 | 4th=+3\n"
+            f"🌐 Option 11 mode: Browse ALL + SMART 8x REPEAT\n"
+            f"Rewards/ep: 1=+15 | 2=+8 | 3=+5 | 4=+3 | 5-8=+2 each (total +39/ep)\n"
             f"Checking campaign..."
         )
         cap_status = self.get_campaign_status()
@@ -1767,7 +1778,7 @@ class MiniPixV2:
                     return True
             return False
 
-        log(f"Series found: {len(all_series)}. Smart-repeat mode = ALL series, 4x each ep.")
+        log(f"Series found: {len(all_series)}. Smart-repeat mode = ALL series, 8x each ep.")
 
         for idx, s in enumerate(all_series, 1):
             if max_watches is not None and total_watched_all >= max_watches:
@@ -1970,7 +1981,7 @@ class MiniPixV2:
                     f"<b>🎬 WATCH (Series)</b> | User <code>{telegram_user_id}</code> | sid=<code>{series_id}</code>\n{msg[:1800]}"
                 )
 
-        log(f"🎯 Specific series mode: id={series_id}\nRewards/ep: 15→8→5→3")
+        log(f"🎯 Specific series mode: id={series_id}\nRewards/ep: 15→8→5→3→2→2→2→2 (total +39/ep)")
         cap_status = self.get_campaign_status()
         daily_used = cap_status.get("used", 0)
         daily_cap = cap_status.get("cap", 0)
@@ -2190,10 +2201,32 @@ class MiniPixV2:
 
     # ─────────────────── QUIZ (from main.py – GROQ BEST)
     def get_quiz_status(self):
-        sc, data = self._req("GET", "/quiz/status")
-        if sc == 200 and isinstance(data, dict) and data.get("success"):
-            return data
-        return None
+        try:
+            sc, data = self._req("GET", "/quiz/status")
+            if sc == 200 and isinstance(data, dict) and data.get("success"):
+                return data
+        except Exception:
+            pass
+        try:
+            sc_c, data_c = self._req("GET", "/coins/tasks?all=1")
+            if sc_c == 200 and isinstance(data_c, dict):
+                merged = {"success": True, "tasks": data_c.get("tasks", [])}
+                daily = {}
+                tasks = data_c.get("tasks") or []
+                if isinstance(tasks, list):
+                    for t in tasks:
+                        if isinstance(t, dict) and t.get("task_type") == "quiz":
+                            period = t.get("period")
+                            if period == "daily":
+                                info = t.get("info") or {}
+                                if isinstance(info, dict):
+                                    daily = info
+                                    break
+                merged["dailyAttempts"] = daily or {"exhausted": False}
+                return merged
+        except Exception:
+            pass
+        return {"success": True, "dailyAttempts": {"exhausted": False}}
 
     def quiz_start_session(self):
         sc, data = self._req(
@@ -2704,7 +2737,7 @@ def main_menu_keyboard():
             [KeyboardButton("👥 Accounts"), KeyboardButton("➕ Login")],
             [
                 KeyboardButton("🎬 Browse Series"),
-                KeyboardButton("🎬 Watch All (4x)"),
+                KeyboardButton("🎬 Watch All (8x)"),
             ],
             [
                 KeyboardButton("🧠 Quiz Status"),
@@ -2751,7 +2784,7 @@ def build_episode_keyboard(series_id, ep_status, series_title=None):
     kb.append(
         [
             InlineKeyboardButton(
-                f"🔥 Watch ALL (4x) This Series",
+                f"🔥 Watch ALL (8x) This Series",
                 callback_data=f"sr_all4x:{series_id}",
             )
         ]
@@ -2771,7 +2804,7 @@ def build_episode_keyboard(series_id, ep_status, series_title=None):
         if w >= MAX_WATCHES_PER_EP:
             icon = "✔"
         elif w > 0:
-            icon = f"{w}/4"
+            icon = f"{w}/8"
         else:
             icon = "▶"
         label = f"E{n} {icon}"
@@ -2800,8 +2833,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /tokenlogin `<token>` – direct Bearer token login\n\n"
         "🎬 *Watch*\n"
         "• /series – browse series (button me `[series_id]` dikhta hai)\n"
-        "• /watch – Smart 4x Watch *ALL* series (Option 11)\n"
-        "• /watch `<SERIES_ID>` – uss SERIES ke saare eps 4x watch\n\n"
+        "• /watch – Smart 8x Watch *ALL* series (Option 11)\n"
+        "• /watch `<SERIES_ID>` – uss SERIES ke saare eps 8x watch\n\n"
         "🧠 *Quiz*\n"
         "• /setgroq `gsk_xxx` – apna Groq key set karo\n"
         "• /addkey `gsk_xxx` – aur ek key add karo (max 5)\n"
@@ -2831,8 +2864,8 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         "➡️ *Series / Watch*\n"
         "/series `[page]` – list all series (with ID)\n"
-        "/watch – Option 11: *ALL* series 4x smart watch\n"
-        "/watch `SERIES_ID` – *specific* series ke saare episodes 4x watch\n\n"
+        "/watch – Option 11: *ALL* series 8x smart watch\n"
+        "/watch `SERIES_ID` – *specific* series ke saare episodes 8x watch\n\n"
 
         "➡️ *Quiz*\n"
         "/quiz – quiz status (hearts, daily cap)\n"
@@ -3168,12 +3201,12 @@ async def series_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📚 *Series List* — Page {cur_page}/{total_pages}  ({total} total)",
         "",
         "Button mein `[series_id]` dikh raha hai. Use karo:",
-        "`/watch <series_id>` → us series ke SARE episodes 4x watch",
+        "`/watch <series_id>` → us series ke SARE episodes 8x watch",
         "",
         "Icons:",
         "`▶` Not watched",
-        "`1/4–3/4` Watched N times",
-        "`✔` 4x complete (max reward)",
+        "`1/8–7/8` Watched N times",
+        "`✔` 8x complete (max reward)",
         "",
         "Ya kisi series par tap karo → episode menu dikhega.",
     ]
@@ -3251,9 +3284,9 @@ async def series_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🎞️ *{title}*\n"
             f"Total episodes: {total_eps}\n"
             f"Progress: {done}/{total_eps} started | "
-            f"{maxed}/{total_eps} 4x-complete\n\n"
+            f"{maxed}/{total_eps} 8x-complete\n\n"
             "• Tap `E1`, `E2`... → 1 episode watch\n"
-            "• Tap *🔥 Watch ALL (4x) This Series* → full series smart-repeat"
+            "• Tap *🔥 Watch ALL (8x) This Series* → full series smart-repeat"
         )
         await query.edit_message_text(
             text, parse_mode="Markdown", reply_markup=kb
@@ -3337,7 +3370,7 @@ async def series_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text("Not logged in.")
                 return
             msg = await query.message.reply_text(
-                f"🔥 Starting SMART 4x repeat for series {sid}..."
+                f"🔥 Starting SMART 8x repeat for series {sid}..."
             )
             loop = asyncio.get_running_loop()
 
@@ -3346,7 +3379,7 @@ async def series_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     loop.call_soon_threadsafe(
                         lambda: asyncio.create_task(
                             msg.edit_text(
-                                f"🔥 Series 4x Watch S{sid}…\n\n{str(text)[-1400:]}"
+                                f"🔥 Series 8x Watch S{sid}…\n\n{str(text)[-1400:]}"
                             )
                         )
                     )
@@ -3369,7 +3402,7 @@ async def series_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             skip = result.get("skipped", 0) if isinstance(result, dict) else 0
             fail = result.get("failed", 0) if isinstance(result, dict) else 0
             t = (
-                f"🏁 Series 4x done: {result.get('series_title', sid)}\n\n"
+                f"🏁 Series 8x done: {result.get('series_title', sid)}\n\n"
                 f"Watched: {watched}\nSkip: {skip}\nFail: {fail}\n"
             )
             if isinstance(result, dict) and result.get("delta") is not None:
@@ -3583,14 +3616,14 @@ async def watch_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if series_id_arg:
             msg = await update.message.reply_text(
-                f"🔥 Starting SMART 4x repeat for Series `{series_id_arg}`...\n"
+                f"🔥 Starting SMART 8x repeat for Series `{series_id_arg}`...\n"
                 "(series detail + episodes load ho rahe hain)",
                 parse_mode="Markdown",
             )
             mode_label = f"Series {series_id_arg}"
         else:
             msg = await update.message.reply_text(
-                "🚀 Starting Smart 4x Watch (Option 11 mode)...\nThoda time lagega."
+                "🚀 Starting Smart 8x Watch (Option 11 mode)...\nThoda time lagega."
             )
             mode_label = "Opt11 ALL"
 
