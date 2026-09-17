@@ -24,6 +24,8 @@ import asyncio
 import atexit
 import threading
 import hashlib
+import random
+import uuid
 from datetime import date, datetime
 from typing import Dict, Optional, List, Tuple, Any
 
@@ -271,21 +273,156 @@ MONGO_TLS_INSECURE = os.environ.get("MONGO_TLS_INSECURE", "1") == "1"
 MAX_GROQ_KEYS_PER_USER = 5
 
 GROQ_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-70b-versatile",
-    "llama-3.1-8b-instant",
-    "mixtral-8x7b-32768",
-    "gemma2-9b-it",
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
     "qwen/qwen3.8-27b",
     "qwen/qwen3.6-27b",
     "allam-2-7b",
-    "llama-3.2-90b-text-preview",
-    "llama-3.2-11b-text-preview",
-    "llama3-groq-70b-8192-tool-use-preview",
-    "llama3-groq-8b-8192-tool-use-preview",
 ]
+
+_OKHTTP_VERSIONS = [
+    "okhttp/4.11.0",
+    "okhttp/4.12.0",
+    "okhttp/4.10.0",
+    "okhttp/4.9.3",
+    "okhttp/4.9.2",
+    "okhttp/4.8.1",
+    "okhttp/4.7.2",
+]
+
+_APP_VERSIONS = ["326", "327", "328", "329", "330"]
+
+_DEVICE_BRANDS = [
+    "Xiaomi", "Xiaomi Redmi", "Xiaomi Poco", "Samsung", "OnePlus",
+    "Realme", "OPPO", "Vivo", "Motorola", "Nokia",
+    "Infinix", "Tecno", "iQOO", "Nothing", "Google Pixel",
+]
+
+_DEVICE_MODELS = {
+    "Xiaomi": ["Redmi Note 12", "Redmi Note 11", "Redmi Note 10", "Mi 11 Lite", "Redmi 12", "Poco X5", "Poco M6 Pro", "Redmi Note 13"],
+    "Xiaomi Redmi": ["Redmi Note 12 Pro", "Redmi Note 11S", "Redmi 10 Prime", "Redmi A2 Plus", "Redmi 12C"],
+    "Xiaomi Poco": ["Poco X5 Pro", "Poco F5", "Poco M6 Pro", "Poco C65", "Poco X6 Neo"],
+    "Samsung": ["Galaxy M34", "Galaxy M14", "Galaxy A14", "Galaxy A24", "Galaxy A34", "Galaxy S21 FE", "Galaxy F34"],
+    "OnePlus": ["OnePlus Nord CE 3", "OnePlus Nord 2T", "OnePlus 11R", "OnePlus Nord CE 4"],
+    "Realme": ["Realme Narzo 60X", "Realme 11X", "Realme C55", "Realme Narzo N55", "Realme 12"],
+    "OPPO": ["OPPO A78", "OPPO A58", "OPPO F23", "OPPO Reno 8T", "OPPO K12x"],
+    "Vivo": ["Vivo Y36", "Vivo Y27", "Vivo T2x", "Vivo V27e", "Vivo Y100A"],
+    "Motorola": ["Moto G54", "Moto G32", "Moto Edge 40 Neo", "Moto G14", "Moto G62"],
+    "Nokia": ["Nokia G42", "Nokia C32", "Nokia G11 Plus", "Nokia HMD Pulse+"],
+    "Infinix": ["Infinix HOT 30i", "Infinix SMART 7", "Infinix NOTE 30", "Infinix ZERO 30"],
+    "Tecno": ["Tecno Spark 10", "Tecno POP 7", "Tecno POVA 5", "Tecno CAMON 20"],
+    "iQOO": ["iQOO Z7 Lite", "iQOO Z7s", "iQOO Neo 7", "iQOO Z9 Lite"],
+    "Nothing": ["Nothing Phone 2", "Nothing Phone 1", "Nothing Phone 2a"],
+    "Google Pixel": ["Pixel 7a", "Pixel 6a", "Pixel 8", "Pixel 7", "Pixel 8a"],
+}
+
+_OS_VERSIONS = [
+    "Android 13", "Android 14", "Android 12", "Android 11", "Android 15",
+]
+
+_MANUFACTURER_LIST = ["Xiaomi", "samsung", "OnePlus", "realme", "OPPO", "vivo", "motorola", "HMD Global", "INFINIX", "Tecno", "iQOO", "Nothing", "Google"]
+
+_NETWORK_HEADERS = [
+    {"x-network-type": "WIFI", "x-network-carrier": "Jio"},
+    {"x-network-type": "WIFI", "x-network-carrier": "Airtel"},
+    {"x-network-type": "4G", "x-network-carrier": "Jio"},
+    {"x-network-type": "4G", "x-network-carrier": "Airtel"},
+    {"x-network-type": "4G", "x-network-carrier": "Vi"},
+    {"x-network-type": "5G", "x-network-carrier": "Jio"},
+    {"x-network-type": "5G", "x-network-carrier": "Airtel"},
+    {},
+    {},
+    {},
+]
+
+
+def _rand_hex(n: int) -> str:
+    return "".join(random.choices("0123456789abcdef", k=n))
+
+
+def generate_device_id() -> str:
+    if random.random() < 0.3:
+        return str(uuid.uuid4()).replace("-", "")[:16]
+    if random.random() < 0.5:
+        return _rand_hex(16)
+    if random.random() < 0.6:
+        return hashlib.md5(str(uuid.uuid4()).encode()).hexdigest()[:16]
+    return hashlib.sha1(str(random.random()).encode()).hexdigest()[:16]
+
+
+def generate_device_info() -> str:
+    brand = random.choice(_DEVICE_BRANDS)
+    candidates = _DEVICE_MODELS.get(brand) or ["Generic Device"]
+    model = random.choice(candidates)
+    os_ver = random.choice(_OS_VERSIONS)
+    sep = random.choice(["; ", " | ", "/", "__"])
+    formats = [
+        f"{brand} {model}{sep}{os_ver}",
+        f"{model}{sep}{os_ver}",
+        f"{brand}/{model}/{os_ver}",
+        f"{os_ver} {brand} {model}",
+        f"{model} {os_ver}",
+    ]
+    return random.choice(formats)
+
+
+def generate_user_agent() -> str:
+    okhttp = random.choice(_OKHTTP_VERSIONS)
+    return okhttp
+
+
+def generate_headers() -> Dict[str, str]:
+    headers = {
+        "user-agent": generate_user_agent(),
+        "accept-encoding": random.choice(["gzip", "gzip, deflate"]),
+        "x-app-version": random.choice(_APP_VERSIONS),
+    }
+    extra = random.choice(_NETWORK_HEADERS)
+    headers.update(extra)
+    if random.random() < 0.4:
+        headers["x-device-lang"] = random.choice(["en", "hi", "en-IN"])
+    if random.random() < 0.3:
+        headers["x-manufacturer"] = random.choice(_MANUFACTURER_LIST)
+    if random.random() < 0.25:
+        headers["x-android-id"] = _rand_hex(16)
+    if random.random() < 0.2:
+        headers["x-install-ref"] = random.choice([
+            "com.android.vending",
+            "organic",
+            "utm_source=google-play&utm_medium=organic",
+        ])
+    return headers
+
+
+def jitter(base: float, amount: float = 0.6, min_val: float = 0.0) -> float:
+    if base <= 0:
+        return max(min_val, random.uniform(0, amount))
+    half = base * amount
+    lo = max(min_val, base - half)
+    hi = base + half
+    return random.uniform(lo, hi)
+
+
+def short_sleep(base_ms: float) -> None:
+    time.sleep(jitter(base_ms / 1000.0, 0.5, 0.005))
+
+
+def medium_sleep(base_ms: float) -> None:
+    time.sleep(jitter(base_ms / 1000.0, 0.7, 0.01))
+
+
+def make_progress_steps(nth_watch: Optional[int] = None) -> List[int]:
+    base = [1, random.randint(35, 60), random.randint(72, 86), random.randint(95, 99), 100]
+    if random.random() < 0.4:
+        base.insert(random.randint(1, 3), random.randint(20, 70))
+    if random.random() < 0.3:
+        base.insert(random.randint(2, 4), random.randint(85, 98))
+    if nth_watch is not None and nth_watch >= 3:
+        if random.random() < 0.6:
+            base = [1, random.randint(60, 85), random.randint(95, 99), 100]
+    if random.random() < 0.15:
+        base.append(100)
+    return sorted(set(base))
 
 HEADERS_BASE = {
     "user-agent": "okhttp/4.12.0",
@@ -627,9 +764,10 @@ class MiniPixV2:
         self.profile_id = None
         self.phone = None
         self.session = requests.Session()
-        self.session.headers.update(HEADERS_BASE)
-        self.device_id = "65969f0b7041fabc"
-        self.device_info = "Xiaomi"
+        self.device_id = generate_device_id()
+        self.device_info = generate_device_info()
+        self._req_counter = 0
+        self._rotate_headers(full=True)
         self.watch_history = {}
         self.watch_history_raw = []
         self.runtime_watch_counts = {}
@@ -637,23 +775,65 @@ class MiniPixV2:
         self.current_account_label = None
         self.accounts = self._load_accounts()
 
+    def _rotate_headers(self, full=False):
+        try:
+            cur_auth = self.session.headers.get("authorization") if hasattr(self, "session") else None
+        except Exception:
+            cur_auth = None
+        new_hdrs = generate_headers()
+        if full:
+            self.device_id = generate_device_id()
+            self.device_info = generate_device_info()
+            new_hdrs["x-device-id"] = self.device_id
+        else:
+            if random.random() < 0.2:
+                self.device_id = generate_device_id()
+            if random.random() < 0.15:
+                self.device_info = generate_device_info()
+        try:
+            self.session.headers.clear()
+            self.session.headers.update(new_hdrs)
+        except Exception:
+            pass
+        if cur_auth:
+            try:
+                self.session.headers["authorization"] = cur_auth
+            except Exception:
+                pass
+
     def _load_accounts(self):
         base = {}
-        if os.path.exists(ACCOUNTS_FILE):
+        candidates = [ACCOUNTS_FILE]
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            candidates.append(os.path.join(script_dir, ACCOUNTS_FILE))
+        except Exception:
+            pass
+        for path in candidates:
+            if not os.path.exists(path):
+                continue
             try:
                 with _accounts_lock:
-                    with open(ACCOUNTS_FILE, "r", encoding="utf-8") as f:
+                    with open(path, "r", encoding="utf-8") as f:
                         data = json.load(f)
                         if isinstance(data, dict):
-                            base = (
+                            loaded = (
                                 data.get("accounts", {})
                                 if isinstance(data.get("accounts"), dict)
                                 else data
                             )
-                            if not isinstance(base, dict):
-                                base = {}
+                            if isinstance(loaded, dict):
+                                for k, v in loaded.items():
+                                    if isinstance(v, dict) and v.get("access_token"):
+                                        base[k] = {
+                                            "access_token": v.get("access_token", ""),
+                                            "user_id": v.get("user_id") or v.get("uid") or v.get("_id"),
+                                            "profile_id": v.get("profile_id") or v.get("master_profile") or v.get("pid"),
+                                            "phone": v.get("phone") or v.get("mobile"),
+                                            "added_on": v.get("added_on") or date.today().isoformat(),
+                                        }
             except Exception:
-                base = {}
+                pass
         try:
             col = _mongo_accounts_col()
             if col is not None:
@@ -742,24 +922,21 @@ class MiniPixV2:
         if not token:
             return False, "No token"
         self._reset_state()
-        self.access_token = token
-        self.user_id = acc.get("user_id")
-        self.profile_id = acc.get("profile_id")
-        self.phone = acc.get("phone")
-        self.session.headers["authorization"] = f"Bearer {self.access_token}"
-        self.current_account_label = label
-        if self.user_id:
-            ok = self.get_user()
-            if ok:
-                self._store_current_account(label)
-                send_log_sync(
-                    f"🔄 SWITCH ACCOUNT | User <code>{label}</code>\n"
-                    f"Phone: {self.phone or '?'}\n"
-                    f"Balance: {self.get_balance()}"
-                )
-                return True, f"Switched to {label}"
-            return False, "Token expired"
-        return True, f"Switched to {label}"
+        ok = self.login_with_token(
+            token,
+            user_id=acc.get("user_id"),
+            profile_id=acc.get("profile_id"),
+            label=label,
+            phone=acc.get("phone"),
+        )
+        if ok:
+            send_log_sync(
+                f"🔄 SWITCH ACCOUNT | User <code>{label}</code>\n"
+                f"Phone: {self.phone or '?'}\n"
+                f"Balance: {self.get_balance()}"
+            )
+            return True, f"Switched to {label}"
+        return False, "Invalid/expired token ya API unavailable"
 
     def remove_account(self, label):
         if label not in self.accounts:
@@ -791,12 +968,25 @@ class MiniPixV2:
 
     def _req(self, method, path, **kwargs):
         url = f"{API_BASE}{path}"
+        self._req_counter += 1
+        if self._req_counter % random.randint(8, 25) == 0:
+            self._rotate_headers(full=random.random() < 0.25)
         try:
-            r = self.session.request(method, url, timeout=30, **kwargs)
+            hdrs = kwargs.get("headers") or {}
+            if "x-device-id" not in hdrs and random.random() < 0.5:
+                hdrs["x-device-id"] = self.device_id
+                kwargs["headers"] = hdrs
+            pre_sleep = jitter(3, 0.8, 0)
+            if pre_sleep > 0:
+                time.sleep(pre_sleep / 1000.0)
+            timeout_val = random.randint(20, 45)
+            r = self.session.request(method, url, timeout=timeout_val, **kwargs)
             try:
                 data = r.json()
             except Exception:
                 data = r.text
+            post_sleep = jitter(12, 0.7, 2)
+            time.sleep(post_sleep / 1000.0)
             return r.status_code, data
         except Exception as e:
             return 0, str(e)
@@ -804,6 +994,8 @@ class MiniPixV2:
     # ───────── Login
     def login_otp_generate(self, phone):
         self.phone = phone
+        self._rotate_headers(full=True)
+        medium_sleep(random.randint(150, 450))
         payload = {"phone_number": phone}
         sc, data = self._req(
             "POST",
@@ -827,6 +1019,7 @@ class MiniPixV2:
         return None
 
     def login_otp_verify(self, session_token, otp, save_label=None):
+        medium_sleep(random.randint(600, 1600))
         payload = {
             "client_id": "android",
             "device_id": self.device_id,
@@ -868,22 +1061,91 @@ class MiniPixV2:
                 f"Balance: {self.get_balance()}\n"
                 f"<pre>{json.dumps(data, ensure_ascii=False)[:600]}</pre>"
             )
+            try:
+                self.integrity_attest()
+            except Exception:
+                pass
             return True
         send_log_sync(
             f"❌ OTP verify failed: {sc} {json.dumps(data, ensure_ascii=False)[:300]}"
         )
         return False
 
-    def login_with_token(self, token, user_id=None, profile_id=None, label=None):
-        self.access_token = token
-        self.user_id = user_id
-        self.profile_id = profile_id
-        self.session.headers["authorization"] = f"Bearer {self.access_token}"
+    @staticmethod
+    def _decode_jwt_payload(token):
+        if not token or not isinstance(token, str):
+            return None
+        parts = token.split(".")
+        if len(parts) < 2:
+            return None
+        payload_b64 = parts[1]
+        rem = len(payload_b64) % 4
+        if rem:
+            payload_b64 += "=" * (4 - rem)
+        try:
+            import base64
+            raw = base64.urlsafe_b64decode(payload_b64.encode("utf-8"))
+            obj = json.loads(raw.decode("utf-8"))
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            pass
+        try:
+            import base64
+            raw = base64.b64decode(payload_b64.encode("utf-8"))
+            obj = json.loads(raw.decode("utf-8"))
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            pass
+        return None
+
+    def login_with_token(self, token, user_id=None, profile_id=None, label=None, phone=None):
+        if not token:
+            return False
+        self._rotate_headers(full=True)
+        medium_sleep(random.randint(120, 380))
         raw = None
         sc = 0
-        if self.user_id:
-            sc, raw = self._req("GET", f"/users/{self.user_id}")
+        jwt = self._decode_jwt_payload(token)
+        if not user_id and isinstance(jwt, dict):
+            user_id = (
+                jwt.get("userId")
+                or jwt.get("uid")
+                or jwt.get("sub")
+                or jwt.get("user_id")
+                or jwt.get("_id")
+                or jwt.get("id")
+            )
+        if not profile_id and isinstance(jwt, dict):
+            profile_id = jwt.get("masterProfile") or jwt.get("master_profile") or jwt.get("pid")
+        if not phone and isinstance(jwt, dict):
+            phone = jwt.get("mobile") or jwt.get("phone")
+
+        self.access_token = token
+        self.session.headers["authorization"] = f"Bearer {self.access_token}"
+
+        if not user_id:
+            sc, raw = self._req("GET", "/users/me")
+            if sc == 200 and isinstance(raw, dict):
+                user_id = raw.get("_id") or raw.get("id") or raw.get("userId")
+                if not profile_id:
+                    profile_id = raw.get("master_profile") or raw.get("masterProfile")
+                if not phone:
+                    phone = raw.get("mobile") or raw.get("phone")
+
+        if not user_id:
+            self._reset_state()
+            return False
+
+        self.user_id = user_id
+        if profile_id:
+            self.profile_id = profile_id
+        if phone and not self.phone:
+            self.phone = phone
+
         if not self.get_user():
+            self._reset_state()
             return False
         self._store_current_account(label)
         ref_code = None
@@ -919,7 +1181,12 @@ class MiniPixV2:
 
     def open_app(self):
         if not (self.user_id and self.profile_id):
-            return False
+            try:
+                self.get_user()
+            except Exception:
+                pass
+            if not (self.user_id and self.profile_id):
+                return False
         payload = {"openApp": {"_id": self.user_id, "date": date.today().isoformat()}}
         sc, data = self._req(
             "PATCH",
@@ -928,6 +1195,51 @@ class MiniPixV2:
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         )
         return sc == 200 and isinstance(data, dict) and data.get("success")
+
+    def integrity_attest(self):
+        last = getattr(self, "_last_attest_ts", 0)
+        interval = 6 * 3600 - 120
+        if last and (time.time() - last) < interval:
+            return True
+        ok = False
+        candidates = [
+            ("POST", "/integrity/attest", None, None),
+            ("POST", "/integrity/attest", {}, {"content-type": "application/json; charset=utf-8"}),
+            ("POST", "/integrity/verify", None, None),
+            ("POST", "/attest", None, None),
+        ]
+        for method, path, body, hdrs in candidates:
+            try:
+                kwargs = {}
+                if hdrs:
+                    kwargs["headers"] = dict(hdrs)
+                if body is None:
+                    pass
+                elif isinstance(body, dict):
+                    kwargs["headers"] = kwargs.get("headers") or {}
+                    kwargs["headers"]["content-type"] = "application/json; charset=utf-8"
+                    kwargs["data"] = json.dumps(body, ensure_ascii=False).encode("utf-8")
+                sc, d = self._req(method, path, **kwargs)
+                if sc and 200 <= sc < 500:
+                    if isinstance(d, dict) and d.get("success"):
+                        ok = True
+                        break
+                    if sc == 200:
+                        ok = True
+                        break
+            except Exception:
+                continue
+        if ok:
+            self._last_attest_ts = time.time()
+        try:
+            self.open_app()
+        except Exception:
+            pass
+        try:
+            self.get_balance()
+        except Exception:
+            pass
+        return ok
 
     def get_balance(self):
         sc, data = self._req("GET", "/coins/balance")
@@ -1628,10 +1940,15 @@ class MiniPixV2:
             except Exception:
                 pass
 
-        progress_steps = [1, 50, 80, 99, 100, 100]
+        progress_steps = make_progress_steps(nth_watch=nth_watch)
         any_fail = False
         reported_coin_progress = False
-        for pct in progress_steps:
+        base_step_delay_ms = 40 if nth_watch and nth_watch <= 4 else 32
+        if random.random() < 0.15:
+            tc_in_ms += random.randint(0, 2000)
+        if random.random() < 0.15:
+            tc_out_ms += random.randint(-1500, 2500)
+        for idx_cur, pct in enumerate(progress_steps):
             if not allow_repeat and pct < current_pct:
                 continue
             ok = self._update_watch_progress(
@@ -1649,6 +1966,7 @@ class MiniPixV2:
                 any_fail = True
             if pct >= 80 and not reported_coin_progress:
                 try:
+                    short_sleep(random.randint(15, 45))
                     self._report_watch_progress_to_coins(
                         series_id, ep_no, pct, series_title
                     )
@@ -1657,26 +1975,40 @@ class MiniPixV2:
                     pass
             if delay_multiplier > 0:
                 try:
-                    idx_cur = progress_steps.index(pct)
                     prev_pct = progress_steps[idx_cur - 1] if idx_cur > 0 else 0
                     delta = pct - prev_pct
+                    if delta <= 0:
+                        delta = 1
                     delay = dur_sec * delay_multiplier * delta / 100
+                    delay = jitter(delay, 0.4, 0.01)
                     if delay > 0:
-                        time.sleep(min(delay, 2))
+                        time.sleep(min(delay, 2.5))
                 except Exception:
-                    time.sleep(0.15)
+                    short_sleep(base_step_delay_ms)
             else:
-                time.sleep(0.15)
+                jitter_ms = base_step_delay_ms + random.randint(-8, 20)
+                if idx_cur == 0:
+                    jitter_ms += random.randint(5, 25)
+                if idx_cur == len(progress_steps) - 1:
+                    jitter_ms += random.randint(10, 35)
+                short_sleep(max(12, jitter_ms))
         if not reported_coin_progress:
             try:
+                short_sleep(random.randint(20, 60))
                 self._report_watch_progress_to_coins(series_id, ep_no, 100, series_title)
             except Exception:
                 pass
         try:
+            medium_sleep(random.randint(60, 180))
             self.claim_reward_task(series_id=series_id, task_id=None)
         except Exception:
             pass
-        time.sleep(0.5)
+        post_watch_ms = random.randint(100, 450)
+        if nth_watch and nth_watch >= 5:
+            post_watch_ms = random.randint(60, 280)
+        if random.random() < 0.1:
+            post_watch_ms += random.randint(200, 600)
+        medium_sleep(post_watch_ms)
         self.watch_history[history_key] = {"watchedPct": 100, "time": tc_out_ms}
         rk = (str(series_id), str(ep_no))
         self.runtime_watch_counts[rk] = self.runtime_watch_counts.get(rk, 0) + 1
@@ -1740,6 +2072,19 @@ class MiniPixV2:
 
         log("Fetching all series (multi-endpoint)...")
         all_series = self.get_all_series()
+        if random.random() < 0.7:
+            try:
+                shuffle_window = min(len(all_series), random.randint(15, max(16, len(all_series))))
+                prefix = all_series[:shuffle_window]
+                random.shuffle(prefix)
+                all_series = prefix + all_series[shuffle_window:]
+            except Exception:
+                pass
+        if random.random() < 0.25:
+            try:
+                random.shuffle(all_series)
+            except Exception:
+                pass
         if not all_series:
             return {"error": "No series found"}
 
@@ -1793,6 +2138,12 @@ class MiniPixV2:
             title = s.get("title") or s.get("name") or "(no title)"
             n_total = int(s.get("numberOfEpisodes") or s.get("totalEpisodes") or 0)
 
+            inter_series_ms = random.randint(300, 1400)
+            if idx > 1 and random.random() < 0.12:
+                inter_series_ms += random.randint(1500, 4500)
+            if idx > 1:
+                medium_sleep(inter_series_ms)
+
             log(f"=== Series {idx}/{len(all_series)}: {title} (id={sid}) ===")
 
             try:
@@ -1834,7 +2185,9 @@ class MiniPixV2:
                 any_series_progress = False
                 if loop_count > MAX_WATCHES_PER_EP + 1:
                     break
+                inner_ep_counter = 0
                 for ep in episodes_sorted:
+                    inner_ep_counter += 1
                     if max_watches is not None and total_watched_all >= max_watches:
                         break
                     if _check_daily_cap(total_watched_all):
@@ -1847,6 +2200,8 @@ class MiniPixV2:
                     if cur_count >= MAX_WATCHES_PER_EP:
                         continue
                     nth = cur_count + 1
+                    if inner_ep_counter > 1 and random.random() < 0.08:
+                        short_sleep(random.randint(25, 120))
                     try:
                         ok, status = self.watch_episode(
                             ep,
@@ -1883,6 +2238,12 @@ class MiniPixV2:
                         watch_counts[k] = c
             except Exception:
                 pass
+            if total_watched_all > 0 and total_watched_all % random.randint(25, 60) == 0:
+                try:
+                    self._rotate_headers(full=random.random() < 0.35)
+                except Exception:
+                    pass
+                medium_sleep(random.randint(600, 2200))
 
         bal_end = self.get_balance_silent()
         delta = None
@@ -2619,7 +2980,10 @@ class MiniPixV2:
                 correct_index = max(0, min(correct_index, len(options) - 1))
                 chosen_text = options[correct_index]
 
-                time.sleep(question_delay)
+                thinking_ms = jitter(question_delay * 1000, 0.35, question_delay * 500)
+                medium_sleep(int(thinking_ms))
+                if random.random() < 0.18:
+                    short_sleep(random.randint(300, 1500))
 
                 result = self.quiz_submit_answer(
                     session_id, q_id, correct_index
@@ -3173,6 +3537,63 @@ async def account_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"Removed: {label}")
         else:
             await query.edit_message_text("Remove failed")
+
+
+async def useaccount_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    bot = get_bot(update.effective_user.id)
+    if not context.args:
+        accs = bot.list_accounts()
+        if not accs:
+            await update.message.reply_text(
+                "No saved accounts in `minipix_accounts.json`.\n"
+                "Usage: `/useaccount <label>`\n"
+                "Example: `/useaccount aa`\n"
+                "Ya phir `/accounts` se inline buttons use karo.",
+                parse_mode="Markdown",
+            )
+        else:
+            preview = "\n".join(f"  • {i+1}. `{lbl}`" for i, lbl in enumerate(accs))
+            await update.message.reply_text(
+                "Usage: `/useaccount <label>`\n\n"
+                f"Available labels:\n{preview}\n\n"
+                "Example: `/useaccount aa`",
+                parse_mode="Markdown",
+            )
+        return
+    label = " ".join(context.args).strip()
+    if not label:
+        await update.message.reply_text("Label missing. Usage: `/useaccount bb`", parse_mode="Markdown")
+        return
+    ok, msg = bot.switch_account(label)
+    if ok:
+        bot.open_app()
+        bal = bot.get_balance()
+        await update.message.reply_text(
+            f"✅ {msg}\n💰 Balance: {bal}",
+            reply_markup=main_menu_keyboard(),
+        )
+    else:
+        accs = bot.list_accounts()
+        hint = ""
+        if accs:
+            hint = "\nAvailable: " + ", ".join(f"`{a}`" for a in accs)
+        await update.message.reply_text(f"❌ {msg}{hint}", parse_mode="Markdown")
+
+
+async def reloadaccounts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    bot = get_bot(update.effective_user.id)
+    before = len(bot.accounts)
+    bot.accounts = bot._load_accounts()
+    after = len(bot.accounts)
+    accs = bot.list_accounts()
+    preview = ""
+    if accs:
+        preview = "\n" + "\n".join(f"  • `{lbl}` → {bot.accounts[lbl].get('phone','?')}" for lbl in accs)
+    await update.message.reply_text(
+        f"🔄 Accounts reloaded: {before} → {after}{preview}",
+        parse_mode="Markdown",
+        reply_markup=main_menu_keyboard(),
+    )
 
 
 # ───────── Browse Series ─────────
@@ -3895,6 +4316,8 @@ def main():
     app.add_handler(CommandHandler("balance", balance_cmd))
     app.add_handler(CommandHandler("campaign", campaign_cmd))
     app.add_handler(CommandHandler("accounts", accounts_cmd))
+    app.add_handler(CommandHandler("useaccount", useaccount_cmd))
+    app.add_handler(CommandHandler("reloadaccounts", reloadaccounts_cmd))
     app.add_handler(CommandHandler("login", login_start))
     app.add_handler(CommandHandler("tokenlogin", tokenlogin_cmd))
     app.add_handler(CommandHandler("series", series_cmd))
