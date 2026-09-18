@@ -255,8 +255,8 @@ ACCOUNTS_FILE = "minipix_accounts.json"
 USER_GROQ_FILE = "user_groq_keys.json"
 LOCK_FILE = "bot.lock"
 
-MAX_WATCHES_PER_EP = 8
-REWARDS_BY_WATCH = {1: 15, 2: 8, 3: 5, 4: 3, 5: 2, 6: 2, 7: 2, 8: 2}
+MAX_WATCHES_PER_EP = 1
+REWARDS_BY_WATCH = {1: 15}
 QUIZ_QUESTION_DELAY = 10
 
 GLOBAL_GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
@@ -412,15 +412,17 @@ def medium_sleep(base_ms: float) -> None:
 
 
 def make_progress_steps(nth_watch: Optional[int] = None) -> List[int]:
-    base = [1, random.randint(35, 60), random.randint(72, 86), random.randint(95, 99), 100]
-    if random.random() < 0.4:
-        base.insert(random.randint(1, 3), random.randint(20, 70))
-    if random.random() < 0.3:
-        base.insert(random.randint(2, 4), random.randint(85, 98))
-    if nth_watch is not None and nth_watch >= 3:
-        if random.random() < 0.6:
-            base = [1, random.randint(60, 85), random.randint(95, 99), 100]
-    if random.random() < 0.15:
+    base = [1, random.randint(72, 88), random.randint(95, 99), 100]
+    if random.random() < 0.55:
+        base.insert(1, random.randint(40, 68))
+    if random.random() < 0.22:
+        base.insert(random.randint(2, 3), random.randint(88, 97))
+    if nth_watch is not None and nth_watch >= 1:
+        if random.random() < 0.75:
+            base = [1, random.randint(82, 92), random.randint(96, 99), 100]
+            if random.random() < 0.45:
+                base.insert(1, random.randint(55, 78))
+    if random.random() < 0.12:
         base.append(100)
     return sorted(set(base))
 
@@ -1178,6 +1180,121 @@ class MiniPixV2:
                 self.phone = phone
             return True
         return False
+
+    def refresh_session_fingerprint(self, full=False):
+        try:
+            if not self.access_token:
+                return False
+            cur_token = self.access_token
+            self._rotate_headers(full=full)
+            try:
+                self.session.headers["authorization"] = f"Bearer {cur_token}"
+            except Exception:
+                pass
+            medium_sleep(random.randint(80, 260))
+            ok1 = False
+            sc1, raw1 = self._req("GET", "/users/me")
+            if sc1 == 200 and isinstance(raw1, dict):
+                uid = raw1.get("_id") or raw1.get("id") or raw1.get("userId")
+                if uid:
+                    if not self.user_id:
+                        self.user_id = uid
+                    pid = raw1.get("master_profile") or raw1.get("masterProfile")
+                    if pid and not self.profile_id:
+                        self.profile_id = pid
+                    ph = raw1.get("mobile") or raw1.get("phone")
+                    if ph and not self.phone:
+                        self.phone = ph
+                    ok1 = True
+            ok2 = False
+            if self.user_id:
+                sc2, raw2 = self._req("GET", f"/users/{self.user_id}")
+                if sc2 == 200 and isinstance(raw2, dict):
+                    self.profile_id = raw2.get("master_profile", self.profile_id)
+                    ph2 = raw2.get("mobile")
+                    if ph2 and not self.phone:
+                        self.phone = ph2
+                    ok2 = True
+            try:
+                self.open_app()
+            except Exception:
+                pass
+            try:
+                self.integrity_attest()
+            except Exception:
+                pass
+            medium_sleep(random.randint(150, 500))
+            return ok1 or ok2
+        except Exception:
+            try:
+                if self.access_token:
+                    self.session.headers["authorization"] = f"Bearer {self.access_token}"
+            except Exception:
+                pass
+            return False
+
+    def _refresh_auth_state(self, full=True, with_quiz_status=True):
+        if not self.access_token:
+            return False
+        try:
+            if full:
+                self.refresh_session_fingerprint(full=True)
+            else:
+                self.refresh_session_fingerprint(full=False)
+        except Exception:
+            try:
+                self._rotate_headers(full=full)
+                if self.access_token:
+                    self.session.headers["authorization"] = f"Bearer {self.access_token}"
+            except Exception:
+                pass
+        ok_me = False
+        if self.access_token:
+            try:
+                sc1, raw1 = self._req("GET", "/users/me")
+                if sc1 == 200 and isinstance(raw1, dict):
+                    uid = raw1.get("_id") or raw1.get("id") or raw1.get("userId")
+                    if uid:
+                        if not self.user_id:
+                            self.user_id = uid
+                        pid = raw1.get("master_profile") or raw1.get("masterProfile")
+                        if pid and not self.profile_id:
+                            self.profile_id = pid
+                        ph = raw1.get("mobile") or raw1.get("phone")
+                        if ph and not self.phone:
+                            self.phone = ph
+                        ok_me = True
+            except Exception:
+                pass
+        ok_user = False
+        if self.user_id:
+            try:
+                sc2, raw2 = self._req("GET", f"/users/{self.user_id}")
+                if sc2 == 200 and isinstance(raw2, dict):
+                    self.profile_id = raw2.get("master_profile", self.profile_id)
+                    ph2 = raw2.get("mobile")
+                    if ph2 and not self.phone:
+                        self.phone = ph2
+                    ok_user = True
+            except Exception:
+                pass
+        try:
+            self.open_app()
+        except Exception:
+            pass
+        try:
+            self.integrity_attest()
+        except Exception:
+            pass
+        qs_ok = False
+        if with_quiz_status:
+            try:
+                qs = self.get_quiz_status()
+                qs_ok = bool(qs and isinstance(qs, dict))
+            except Exception:
+                pass
+        medium_sleep(random.randint(200, 700))
+        return bool(ok_me or ok_user or qs_ok)
 
     def open_app(self):
         if not (self.user_id and self.profile_id):
@@ -1943,10 +2060,12 @@ class MiniPixV2:
         progress_steps = make_progress_steps(nth_watch=nth_watch)
         any_fail = False
         reported_coin_progress = False
-        base_step_delay_ms = 40 if nth_watch and nth_watch <= 4 else 32
-        if random.random() < 0.15:
+        base_step_delay_ms = 22
+        if nth_watch and nth_watch <= 1:
+            base_step_delay_ms = 18
+        if random.random() < 0.18:
             tc_in_ms += random.randint(0, 2000)
-        if random.random() < 0.15:
+        if random.random() < 0.18:
             tc_out_ms += random.randint(-1500, 2500)
         for idx_cur, pct in enumerate(progress_steps):
             if not allow_repeat and pct < current_pct:
@@ -1966,7 +2085,7 @@ class MiniPixV2:
                 any_fail = True
             if pct >= 80 and not reported_coin_progress:
                 try:
-                    short_sleep(random.randint(15, 45))
+                    short_sleep(random.randint(8, 28))
                     self._report_watch_progress_to_coins(
                         series_id, ep_no, pct, series_title
                     )
@@ -1980,35 +2099,33 @@ class MiniPixV2:
                     if delta <= 0:
                         delta = 1
                     delay = dur_sec * delay_multiplier * delta / 100
-                    delay = jitter(delay, 0.4, 0.01)
+                    delay = jitter(delay, 0.4, 0.005)
                     if delay > 0:
-                        time.sleep(min(delay, 2.5))
+                        time.sleep(min(delay, 1.5))
                 except Exception:
                     short_sleep(base_step_delay_ms)
             else:
-                jitter_ms = base_step_delay_ms + random.randint(-8, 20)
+                jitter_ms = base_step_delay_ms + random.randint(-5, 14)
                 if idx_cur == 0:
-                    jitter_ms += random.randint(5, 25)
+                    jitter_ms += random.randint(2, 14)
                 if idx_cur == len(progress_steps) - 1:
-                    jitter_ms += random.randint(10, 35)
-                short_sleep(max(12, jitter_ms))
+                    jitter_ms += random.randint(4, 20)
+                short_sleep(max(8, jitter_ms))
         if not reported_coin_progress:
             try:
-                short_sleep(random.randint(20, 60))
+                short_sleep(random.randint(10, 35))
                 self._report_watch_progress_to_coins(series_id, ep_no, 100, series_title)
             except Exception:
                 pass
         try:
-            medium_sleep(random.randint(60, 180))
+            short_sleep(random.randint(30, 120))
             self.claim_reward_task(series_id=series_id, task_id=None)
         except Exception:
             pass
-        post_watch_ms = random.randint(100, 450)
-        if nth_watch and nth_watch >= 5:
-            post_watch_ms = random.randint(60, 280)
-        if random.random() < 0.1:
-            post_watch_ms += random.randint(200, 600)
-        medium_sleep(post_watch_ms)
+        post_watch_ms = random.randint(50, 220)
+        if random.random() < 0.08:
+            post_watch_ms += random.randint(150, 400)
+        short_sleep(post_watch_ms)
         self.watch_history[history_key] = {"watchedPct": 100, "time": tc_out_ms}
         rk = (str(series_id), str(ep_no))
         self.runtime_watch_counts[rk] = self.runtime_watch_counts.get(rk, 0) + 1
@@ -2123,7 +2240,7 @@ class MiniPixV2:
                     return True
             return False
 
-        log(f"Series found: {len(all_series)}. Smart-repeat mode = ALL series, 8x each ep.")
+        log(f"Series found: {len(all_series)}. Fast watch mode = ALL series, 1x each ep.")
 
         for idx, s in enumerate(all_series, 1):
             if max_watches is not None and total_watched_all >= max_watches:
@@ -2138,11 +2255,11 @@ class MiniPixV2:
             title = s.get("title") or s.get("name") or "(no title)"
             n_total = int(s.get("numberOfEpisodes") or s.get("totalEpisodes") or 0)
 
-            inter_series_ms = random.randint(300, 1400)
-            if idx > 1 and random.random() < 0.12:
-                inter_series_ms += random.randint(1500, 4500)
+            inter_series_ms = random.randint(120, 520)
+            if idx > 1 and random.random() < 0.08:
+                inter_series_ms += random.randint(600, 2000)
             if idx > 1:
-                medium_sleep(inter_series_ms)
+                short_sleep(inter_series_ms)
 
             log(f"=== Series {idx}/{len(all_series)}: {title} (id={sid}) ===")
 
@@ -2200,8 +2317,8 @@ class MiniPixV2:
                     if cur_count >= MAX_WATCHES_PER_EP:
                         continue
                     nth = cur_count + 1
-                    if inner_ep_counter > 1 and random.random() < 0.08:
-                        short_sleep(random.randint(25, 120))
+                    if inner_ep_counter > 1 and random.random() < 0.05:
+                        short_sleep(random.randint(8, 45))
                     try:
                         ok, status = self.watch_episode(
                             ep,
@@ -2238,12 +2355,12 @@ class MiniPixV2:
                         watch_counts[k] = c
             except Exception:
                 pass
-            if total_watched_all > 0 and total_watched_all % random.randint(25, 60) == 0:
+            if total_watched_all > 0 and total_watched_all % random.randint(50, 120) == 0:
                 try:
-                    self._rotate_headers(full=random.random() < 0.35)
+                    self._rotate_headers(full=random.random() < 0.25)
                 except Exception:
                     pass
-                medium_sleep(random.randint(600, 2200))
+                medium_sleep(random.randint(300, 1100))
 
         bal_end = self.get_balance_silent()
         delta = None
@@ -2412,12 +2529,14 @@ class MiniPixV2:
 
         any_series_progress = True
         loop_count = 0
+        inner_ep_counter = 0
         while any_series_progress:
             loop_count += 1
             any_series_progress = False
             if loop_count > MAX_WATCHES_PER_EP + 1:
                 break
             for ep in episodes_sorted:
+                inner_ep_counter += 1
                 if total_watched_all >= max_allowed:
                     log(f"🛑 Soft limit ({max_allowed} watches).")
                     break
@@ -2429,6 +2548,8 @@ class MiniPixV2:
                 if cur_count >= MAX_WATCHES_PER_EP:
                     continue
                 nth = cur_count + 1
+                if inner_ep_counter > 1 and random.random() < 0.05:
+                    short_sleep(random.randint(8, 45))
                 try:
                     ok, status = self.watch_episode(
                         ep,
@@ -2589,11 +2710,26 @@ class MiniPixV2:
             pass
         return {"success": True, "dailyAttempts": {"exhausted": False}}
 
-    def quiz_start_session(self):
+    def quiz_start_session(self, force_fresh_device=False):
+        try:
+            if force_fresh_device:
+                self.refresh_session_fingerprint(full=True)
+            elif random.random() < 0.35:
+                self._rotate_headers(full=False)
+        except Exception:
+            pass
+        extra_hdrs = {
+            "content-type": "application/json; charset=utf-8",
+            "x-device-id": self.device_id,
+            "x-device-info": self.device_info[:80],
+            "accept": "application/json, text/plain, */*",
+            "origin": "https://mixpix.app",
+            "referer": "https://mixpix.app/",
+        }
         sc, data = self._req(
             "POST",
             "/quiz/session/start",
-            headers={"content-type": "application/json; charset=utf-8"},
+            headers=extra_hdrs,
             data=json.dumps({}).encode("utf-8"),
         )
         send_log_sync(
@@ -2601,8 +2737,29 @@ class MiniPixV2:
             f"Status: {sc}\n"
             f"Data: {json.dumps(data, ensure_ascii=False)[:500]}"
         )
+        diag = {
+            "status_code": sc,
+            "success": False,
+            "enabled": None,
+            "exhausted": False,
+            "disabled_flag": False,
+            "has_session": False,
+            "has_question": False,
+            "message": None,
+        }
         if sc == 200 and isinstance(data, dict):
-            if data.get("success") is True or data.get("status") == "success":
+            diag["success"] = (data.get("success") is True or data.get("status") == "success")
+            if "enabled" in data:
+                diag["enabled"] = bool(data.get("enabled"))
+                if diag["enabled"] is False:
+                    diag["disabled_flag"] = True
+            msg = data.get("message") or data.get("error") or data.get("msg")
+            if msg:
+                diag["message"] = str(msg)
+            daily_info = data.get("dailyAttempts") or data.get("daily") or {}
+            if isinstance(daily_info, dict) and daily_info.get("exhausted"):
+                diag["exhausted"] = True
+            if diag["success"] is True or data.get("status") == "success":
                 session_obj = data.get("session") or {}
                 question_obj = data.get("question")
                 sid = (
@@ -2615,55 +2772,100 @@ class MiniPixV2:
                         data.get("data", {}).get("question")
                         or data.get("next", {}).get("question")
                     )
+                diag["has_session"] = bool(sid)
+                diag["has_question"] = bool(question_obj and isinstance(question_obj, dict))
                 if sid and question_obj:
-                    return sid, question_obj, session_obj
+                    return sid, question_obj, session_obj, diag
+                else:
+                    if diag["enabled"] is False:
+                        send_log_sync(
+                            f"🚫 QUIZ BANNED SIGNAL: enabled=false (fingerprint flagged)\n"
+                            f"sid={sid}, question_obj={question_obj is not None}\n"
+                            f"msg={diag.get('message')}"
+                        )
+                    else:
+                        send_log_sync(
+                            f"⚠️ Missing sessionId or question in response.\n"
+                            f"sid={sid}, question_obj={question_obj is not None}, "
+                            f"enabled={diag.get('enabled')}"
+                        )
+            else:
+                if diag["enabled"] is False:
+                    send_log_sync(
+                        f"🚫 QUIZ BANNED: success=False AND enabled=false. msg={diag.get('message')}"
+                    )
                 else:
                     send_log_sync(
-                        f"⚠️ Missing sessionId or question in response.\n"
-                        f"sid={sid}, question_obj={question_obj is not None}"
+                        f"❌ Quiz start returned success=False: {data.get('message', data)}"
                     )
-            else:
-                send_log_sync(
-                    f"❌ Quiz start returned success=False: {data.get('message', data)}"
-                )
         else:
             send_log_sync(f"❌ Quiz start HTTP {sc}: {str(data)[:300]}")
-        return None, None, None
+        return None, None, None, diag
 
-    def quiz_submit_answer(self, session_id, question_id, chosen_index):
+    def quiz_submit_answer(self, session_id, question_id, chosen_index, extra_headers=None):
         payload = {
             "sessionId": session_id,
             "questionId": question_id,
             "chosenIndex": chosen_index,
         }
+        hdrs = {
+            "content-type": "application/json; charset=utf-8",
+            "x-device-id": self.device_id,
+            "x-device-info": self.device_info[:80],
+        }
+        if isinstance(extra_headers, dict):
+            hdrs.update(extra_headers)
         sc, data = self._req(
             "POST",
             "/quiz/session/answer",
-            headers={"content-type": "application/json; charset=utf-8"},
+            headers=hdrs,
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         )
         if sc == 200 and isinstance(data, dict):
             return data
         return None
 
-    def quiz_use_lifeline(self, session_id, question_id):
+    def quiz_submit_answer_with_headers(self, session_id, question_id, chosen_index, extra_headers=None):
+        return self.quiz_submit_answer(session_id, question_id, chosen_index, extra_headers=extra_headers)
+
+    def quiz_use_lifeline(self, session_id, question_id, extra_headers=None):
         payload = {"sessionId": session_id, "questionId": question_id}
+        hdrs = {
+            "content-type": "application/json; charset=utf-8",
+            "x-device-id": self.device_id,
+            "x-device-info": self.device_info[:80],
+            "accept": "application/json, text/plain, */*",
+            "origin": "https://mixpix.app",
+            "referer": "https://mixpix.app/",
+        }
+        if isinstance(extra_headers, dict):
+            hdrs.update(extra_headers)
         sc, data = self._req(
             "POST",
             "/quiz/session/lifeline",
-            headers={"content-type": "application/json; charset=utf-8"},
+            headers=hdrs,
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         )
         if sc == 200 and isinstance(data, dict) and data.get("success"):
             return data.get("removedOptions", [])
         return None
 
-    def quiz_ad_ack(self, session_id):
+    def quiz_ad_ack(self, session_id, extra_headers=None):
         payload = {"sessionId": session_id}
+        hdrs = {
+            "content-type": "application/json; charset=utf-8",
+            "x-device-id": self.device_id,
+            "x-device-info": self.device_info[:80],
+            "accept": "application/json, text/plain, */*",
+            "origin": "https://mixpix.app",
+            "referer": "https://mixpix.app/",
+        }
+        if isinstance(extra_headers, dict):
+            hdrs.update(extra_headers)
         sc, data = self._req(
             "POST",
             "/quiz/session/ad-ack",
-            headers={"content-type": "application/json; charset=utf-8"},
+            headers=hdrs,
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         )
         if sc == 200 and isinstance(data, dict) and data.get("success"):
@@ -2887,28 +3089,153 @@ class MiniPixV2:
             f"🧠 QUIZ STARTED | User <code>{telegram_user_id}</code> | Sessions: {max_sessions} | Groq Keys: {key_count}"
         )
 
+        last_diag = None
         for session_num in range(1, max_sessions + 1):
             log(f"--- Session {session_num}/{max_sessions} ---")
 
-            session_id, question_obj, session_meta = None, None, None
-            for attempt in range(2):
-                session_id, question_obj, session_meta = self.quiz_start_session()
+            try:
+                do_full = (session_num % 2 == 0) or (failed_attempts >= 1)
+                if isinstance(last_diag, dict) and last_diag.get("disabled_flag"):
+                    do_full = True
+                if session_num > 1:
+                    self._refresh_auth_state(full=do_full, with_quiz_status=True)
+                    medium_sleep(random.randint(500, 1400))
+            except Exception:
+                try:
+                    if session_num > 1:
+                        do_full_fb = (session_num % 2 == 0) or (failed_attempts >= 1)
+                        self.refresh_session_fingerprint(full=do_full_fb)
+                        medium_sleep(random.randint(300, 900))
+                except Exception:
+                    pass
+
+            session_id, question_obj, session_meta, diag = None, None, None, None
+            ban_detected_any = False
+            for attempt in range(3):
+                if attempt == 1:
+                    prev_ban = bool(isinstance(diag, dict) and diag.get("disabled_flag"))
+                    ban_detected_any = ban_detected_any or prev_ban
+                    if prev_ban:
+                        log(f"🚫 Attempt 2/3: BAN detected → FULL refresh + longer cool-off...")
+                        send_log_sync(f"🧨 Session {session_num} a1 BANNED (enabled=false) → FULL auth-state refresh.")
+                        try:
+                            self._refresh_auth_state(full=True, with_quiz_status=True)
+                        except Exception:
+                            try:
+                                self.refresh_session_fingerprint(full=True)
+                            except Exception:
+                                pass
+                        cool_min, cool_max = (12.0, 28.0) if prev_ban else (5.0, 12.0)
+                        time.sleep(random.uniform(cool_min, cool_max))
+                        force = True
+                    else:
+                        log(f"🔄 Session start attempt {attempt+1}/3: Light refresh + wait...")
+                        try:
+                            self._refresh_auth_state(full=False, with_quiz_status=False)
+                        except Exception:
+                            try:
+                                self.refresh_session_fingerprint(full=False)
+                            except Exception:
+                                pass
+                        time.sleep(random.uniform(5.0, 12.0))
+                        force = False
+                elif attempt == 2:
+                    prev_ban = bool(isinstance(diag, dict) and diag.get("disabled_flag"))
+                    ban_detected_any = ban_detected_any or prev_ban
+                    log(f"🔥 Session start attempt {attempt+1}/3: FULL DEVICE RESET + long wait...")
+                    send_log_sync(
+                        f"🧨 Session {session_num} start failed twice ({'BAN=ENABLED_FALSE' if prev_ban or ban_detected_any else 'normal-fail'}) → FULL reset."
+                    )
+                    try:
+                        self._refresh_auth_state(full=True, with_quiz_status=True)
+                    except Exception:
+                        try:
+                            self.refresh_session_fingerprint(full=True)
+                        except Exception:
+                            pass
+                    try:
+                        self.get_user()
+                    except Exception:
+                        pass
+                    extra = 8.0 if (prev_ban or ban_detected_any) else 0.0
+                    time.sleep(random.uniform(14.0 + extra, 32.0 + extra))
+                    force = True
+                else:
+                    force = False
+
+                diag = None
+                try:
+                    res = self.quiz_start_session(force_fresh_device=force)
+                    if isinstance(res, tuple) and len(res) >= 4:
+                        session_id, question_obj, session_meta, diag = res[0], res[1], res[2], res[3]
+                    elif isinstance(res, tuple) and len(res) == 3:
+                        session_id, question_obj, session_meta = res
+                        diag = {}
+                    else:
+                        session_id, question_obj, session_meta = None, None, None
+                        diag = {}
+                except Exception as e:
+                    session_id, question_obj, session_meta, diag = None, None, None, {"exception": str(e)}
+
+                if isinstance(diag, dict) and diag.get("disabled_flag"):
+                    ban_detected_any = True
+
                 if session_id and question_obj:
+                    if attempt > 0:
+                        send_log_sync(f"✅ Session {session_num} recovered on attempt {attempt+1}" + (" (after BAN cool-off)" if ban_detected_any else ""))
                     break
-                if attempt == 0:
-                    log("⚠️ Session start failed, retrying in 3s...")
-                    time.sleep(3)
+                if attempt < 2:
+                    try:
+                        if isinstance(diag, dict) and diag.get("exhausted"):
+                            log("🛑 Daily exhausted (from start response) — abort further sessions.")
+                            failed_attempts = 9
+                            break
+                        qs = self.get_quiz_status() or {}
+                        daily_info = qs.get("dailyAttempts", {}) or {}
+                        if daily_info.get("exhausted"):
+                            log("🛑 Daily quiz exhausted — abort further sessions.")
+                            failed_attempts = 9
+                            break
+                    except Exception:
+                        pass
+
+            last_diag = diag if isinstance(diag, dict) else None
+
+            if failed_attempts >= 9:
+                break
 
             if not session_id or not question_obj:
-                log("❌ Failed to start session after retry")
+                diag_repr = ""
+                if isinstance(diag, dict):
+                    parts = []
+                    if diag.get("disabled_flag"):
+                        parts.append("ENABLED_FALSE=BAN")
+                    if diag.get("exhausted"):
+                        parts.append("EXHAUSTED")
+                    if diag.get("message"):
+                        parts.append(f"msg={diag.get('message')}")
+                    if diag.get("status_code"):
+                        parts.append(f"http={diag.get('status_code')}")
+                    diag_repr = " | ".join(parts)
+                log("❌ Failed to start session after 3 retries" + (f" [{diag_repr}]" if diag_repr else ""))
                 send_log_sync(
-                    f"❌ Session start failed | User <code>{telegram_user_id}</code>"
+                    f"❌ Session {session_num} start FAILED × 3 | User <code>{telegram_user_id}</code>"
+                    + (f"\n  Diagnosis: {diag_repr}" if diag_repr else "")
                 )
                 failed_attempts += 1
                 if failed_attempts >= 2:
-                    log("Aborting: too many failed attempts to start session.")
+                    log("2+ consecutive session failures → aborting quiz run. Next auto-login se resolve hoga.")
                     break
-                time.sleep(3)
+                try:
+                    self._refresh_auth_state(full=True, with_quiz_status=True)
+                except Exception:
+                    try:
+                        self.refresh_session_fingerprint(full=True)
+                    except Exception:
+                        pass
+                base_sleep_min = 12.0 if ban_detected_any else 8.0
+                base_sleep_max = 30.0 if ban_detected_any else 20.0
+                time.sleep(random.uniform(base_sleep_min, base_sleep_max))
                 continue
 
             hearts = session_meta.get("hearts", 3) if session_meta else 3
@@ -2919,7 +3246,7 @@ class MiniPixV2:
                 if failed_attempts >= 2:
                     log("Aborting: repeated dead sessions.")
                     break
-                time.sleep(5)
+                time.sleep(random.uniform(5.0, 12.0))
                 continue
 
             failed_attempts = 0
@@ -2980,14 +3307,30 @@ class MiniPixV2:
                 correct_index = max(0, min(correct_index, len(options) - 1))
                 chosen_text = options[correct_index]
 
-                thinking_ms = jitter(question_delay * 1000, 0.35, question_delay * 500)
+                base_think_s = random.uniform(1.0, 20.0)
+                thinking_ms = jitter(base_think_s * 1000, 0.25, base_think_s * 600)
                 medium_sleep(int(thinking_ms))
-                if random.random() < 0.18:
-                    short_sleep(random.randint(300, 1500))
+                if random.random() < 0.22:
+                    short_sleep(random.randint(250, 1800))
 
-                result = self.quiz_submit_answer(
-                    session_id, q_id, correct_index
-                )
+                try:
+                    q_extra_hdrs = {
+                        "x-device-id": self.device_id,
+                        "x-device-info": self.device_info[:80],
+                        "accept": "application/json, text/plain, */*",
+                        "origin": "https://mixpix.app",
+                        "referer": "https://mixpix.app/",
+                    }
+                    result = self.quiz_submit_answer_with_headers(
+                        session_id, q_id, correct_index, q_extra_hdrs
+                    )
+                except Exception:
+                    result = None
+                if not result:
+                    try:
+                        result = self.quiz_submit_answer(session_id, q_id, correct_index)
+                    except Exception:
+                        result = None
                 if not result:
                     break
 
@@ -3044,7 +3387,20 @@ class MiniPixV2:
                             continue
 
                     if q_count > 0 and ad_every > 0 and (q_count % ad_every == 0):
-                        nq = self.quiz_ad_ack(session_id)
+                        try:
+                            ad_hdrs = {
+                                "x-device-id": self.device_id,
+                                "x-device-info": self.device_info[:80],
+                                "accept": "application/json, text/plain, */*",
+                                "origin": "https://mixpix.app",
+                                "referer": "https://mixpix.app/",
+                            }
+                            nq = self.quiz_ad_ack(session_id, extra_headers=ad_hdrs)
+                        except Exception:
+                            try:
+                                nq = self.quiz_ad_ack(session_id)
+                            except Exception:
+                                nq = None
                         if nq and isinstance(nq, dict):
                             question_obj = nq
                             continue
@@ -3062,9 +3418,35 @@ class MiniPixV2:
             log(session_summary)
             send_log_sync(f"<b>{session_summary}</b>")
 
+            try:
+                self._refresh_auth_state(full=ban_detected_any, with_quiz_status=False)
+            except Exception:
+                try:
+                    self.get_user()
+                except Exception:
+                    pass
+
             sessions_done += 1
             if session_num < max_sessions:
-                time.sleep(2)
+                next_sleep_s = random.uniform(4.0, 17.0)
+                if ban_detected_any:
+                    next_sleep_s += random.uniform(8.0, 22.0)
+                if random.random() < 0.22:
+                    next_sleep_s += random.uniform(6.0, 18.0)
+                try:
+                    post_full = (sessions_done % 2 == 0) or ban_detected_any
+                    self._refresh_auth_state(full=post_full, with_quiz_status=True)
+                    label = "FULL" if post_full else "light"
+                    send_log_sync(f"♻️ Post-session {session_num}: {label} auth-state refresh before next session." + (" (BAN cool-off)" if ban_detected_any else ""))
+                except Exception:
+                    try:
+                        post_fb = (sessions_done % 2 == 0) or ban_detected_any
+                        self.refresh_session_fingerprint(full=post_fb)
+                        send_log_sync(f"♻️ Post-session {session_num}: refresh fallback done.")
+                    except Exception:
+                        pass
+                log(f"⏱️ Next quiz session in ~{next_sleep_s:.1f}s...")
+                time.sleep(next_sleep_s)
 
         final = (
             f"<b>🏁 QUIZ FINISHED</b>\n"
@@ -3101,7 +3483,7 @@ def main_menu_keyboard():
             [KeyboardButton("👥 Accounts"), KeyboardButton("➕ Login")],
             [
                 KeyboardButton("🎬 Browse Series"),
-                KeyboardButton("🎬 Watch All (8x)"),
+                KeyboardButton("🎬 Watch All (Fast)"),
             ],
             [
                 KeyboardButton("🧠 Quiz Status"),
@@ -3148,7 +3530,7 @@ def build_episode_keyboard(series_id, ep_status, series_title=None):
     kb.append(
         [
             InlineKeyboardButton(
-                f"🔥 Watch ALL (8x) This Series",
+                f"🔥 Watch ALL (Fast) This Series",
                 callback_data=f"sr_all4x:{series_id}",
             )
         ]
@@ -3168,7 +3550,7 @@ def build_episode_keyboard(series_id, ep_status, series_title=None):
         if w >= MAX_WATCHES_PER_EP:
             icon = "✔"
         elif w > 0:
-            icon = f"{w}/8"
+            icon = f"{w}/1"
         else:
             icon = "▶"
         label = f"E{n} {icon}"
@@ -4144,14 +4526,14 @@ async def quiz_run_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-    await update.message.reply_text("Kitne quiz sessions? (10-25, default 15):")
+    await update.message.reply_text("Kitne quiz sessions? (1-20, default 15):")
     return WAIT_QUIZ_SESSIONS
 
 
 async def quiz_sessions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         n = int(update.message.text.strip() or "15")
-        n = max(10, min(25, n))
+        n = max(1, min(20, n))
     except Exception:
         n = 15
     context.user_data["quiz_sessions"] = n
