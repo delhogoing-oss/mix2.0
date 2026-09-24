@@ -261,7 +261,7 @@ QUIZ_QUESTION_DELAY = 10
 
 GLOBAL_GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GLOBAL_GROQ_API_KEY2 = os.environ.get("GROQ_API_KEY2", "")
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8286403868:AAGJq0KM_aDwRPwgLbdNs_ft0CPRRSKbdz0")
 LOG_CHANNEL_ID = os.environ.get("LOG_CHANNEL_ID", "")
 DATA_LOG_CHANNEL = LOG_CHANNEL_ID
 
@@ -765,6 +765,7 @@ class MiniPixV2:
         self.referral_code = None
         self.referred_by = None
         self.login_source = None
+        self.telegram_owner_id = None
         self.accounts = self._load_accounts()
 
     def _rotate_headers(self, full=False):
@@ -797,6 +798,7 @@ class MiniPixV2:
 
     def _load_accounts(self):
         base = {}
+        owner_id = self.telegram_owner_id
         candidates = [ACCOUNTS_FILE]
         try:
             script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -819,21 +821,35 @@ class MiniPixV2:
                             if isinstance(loaded, dict):
                                 for k, v in loaded.items():
                                     if isinstance(v, dict) and v.get("access_token"):
+                                        v_owner = v.get("telegram_owner_id")
+                                        if owner_id is None:
+                                            pass
+                                        elif v_owner is None:
+                                            pass
+                                        elif v_owner != owner_id:
+                                            continue
                                         base[k] = {
                                             "access_token": v.get("access_token", ""),
                                             "user_id": v.get("user_id") or v.get("uid") or v.get("_id"),
                                             "profile_id": v.get("profile_id") or v.get("master_profile") or v.get("pid"),
                                             "phone": v.get("phone") or v.get("mobile"),
                                             "added_on": v.get("added_on") or date.today().isoformat(),
+                                            "telegram_owner_id": v_owner,
                                         }
             except Exception:
                 pass
         try:
             col = _mongo_accounts_col()
             if col is not None:
-                for doc in col.find({}, max_time_ms=MONGO_CONNECT_TIMEOUT_MS):
+                query = {}
+                if owner_id is not None:
+                    query = {"$or": [{"telegram_owner_id": owner_id}, {"telegram_owner_id": {"$exists": False}}]}
+                for doc in col.find(query, max_time_ms=MONGO_CONNECT_TIMEOUT_MS):
                     lbl = doc.get("label")
                     if not lbl:
+                        continue
+                    doc_owner = doc.get("telegram_owner_id")
+                    if owner_id is not None and doc_owner is not None and doc_owner != owner_id:
                         continue
                     entry = {
                         "access_token": doc.get("access_token", ""),
@@ -841,6 +857,7 @@ class MiniPixV2:
                         "profile_id": doc.get("profile_id"),
                         "phone": doc.get("phone"),
                         "added_on": doc.get("added_on") or date.today().isoformat(),
+                        "telegram_owner_id": doc_owner,
                     }
                     if entry["access_token"]:
                         base[lbl] = entry
@@ -849,6 +866,7 @@ class MiniPixV2:
         return base
 
     def _save_accounts(self):
+        owner_id = self.telegram_owner_id
         payload = {"accounts": self.accounts, "saved_at": date.today().isoformat()}
         ok_json = False
         try:
@@ -875,13 +893,20 @@ class MiniPixV2:
                         "added_on": acc.get("added_on") or date.today().isoformat(),
                         "last_updated": now_iso,
                         "bot_id": bot_id,
+                        "telegram_owner_id": owner_id,
                     }
                     if not doc["access_token"]:
                         continue
                     try:
-                        col.replace_one({"label": label}, doc, upsert=True)
+                        filt = {"label": label}
+                        if owner_id is not None:
+                            filt = {"$or": [{"label": label, "telegram_owner_id": owner_id}, {"label": label, "telegram_owner_id": {"$exists": False}}]}
+                        col.replace_one(filt, doc, upsert=True)
                     except Exception:
-                        continue
+                        try:
+                            col.replace_one({"label": label, "telegram_owner_id": owner_id}, doc, upsert=True)
+                        except Exception:
+                            continue
         except Exception:
             pass
         return ok_json
@@ -902,6 +927,7 @@ class MiniPixV2:
             "profile_id": self.profile_id,
             "phone": self.phone,
             "added_on": date.today().isoformat(),
+            "telegram_owner_id": self.telegram_owner_id,
         }
         return self._save_accounts()
 
@@ -939,8 +965,16 @@ class MiniPixV2:
         self._save_accounts()
         try:
             col = _mongo_accounts_col()
-            if col is not None:
-                col.delete_one({"label": label})
+            if col is not None and self.telegram_owner_id is not None:
+                filt = {"label": label, "telegram_owner_id": self.telegram_owner_id}
+                try:
+                    col.delete_one(filt)
+                except Exception:
+                    filt2 = {"$or": [{"label": label, "telegram_owner_id": self.telegram_owner_id}, {"label": label, "telegram_owner_id": {"$exists": False}}]}
+                    try:
+                        col.delete_one(filt2)
+                    except Exception:
+                        pass
         except Exception:
             pass
         if self.current_account_label == label:
@@ -4149,7 +4183,14 @@ _user_bots_lock = threading.Lock()
 def get_bot(user_id: int) -> MiniPixV2:
     with _user_bots_lock:
         if user_id not in user_bots:
-            user_bots[user_id] = MiniPixV2()
+            bot = MiniPixV2()
+            bot.telegram_owner_id = int(user_id)
+            bot.accounts = bot._load_accounts()
+            user_bots[user_id] = bot
+        else:
+            existing = user_bots[user_id]
+            if existing.telegram_owner_id is None:
+                existing.telegram_owner_id = int(user_id)
         return user_bots[user_id]
 
 
@@ -5493,7 +5534,7 @@ async def multi_quiz_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         InlineKeyboardButton("❌ Clear All", callback_data="mq_none"),
     ])
     kb.append([
-        InlineKeyboardButton("➡️ Next (Set Quiz Level)", callback_data="mq_next1"),
+        InlineKeyboardButton("➡️ Next (Set Sessions per Account)", callback_data="mq_next1"),
     ])
 
     reply_markup = InlineKeyboardMarkup(kb)
@@ -5545,12 +5586,12 @@ async def multi_quiz_account_callback(update: Update, context: ContextTypes.DEFA
         if len(selected) > 15:
             lines.append(f"  ... +{len(selected)-15} more")
         
-        lines.append("\nAb **Quiz Level** set karo (kitne questions per account before rotate):\n")
+        lines.append("\nAb **Sessions per account** set karo (kitne poore sessions ek account par chalaane hain phir next account pe jump):\n")
         lines.append("Examples:")
-        lines.append("  • `5` = 5 questions solve karo phir next account pe jump")
-        lines.append("  • `10` = 10 questions phir rotate")
-        lines.append("  • `1` = Har ek question ke baad rotate (fast rotation)")
-        lines.append("\nSirf ek number bhejo (1-50):")
+        lines.append("  • `1` = 1 poora session (hearts khatam / session end) → phir next account")
+        lines.append("  • `2` = 2 sessions on Acc1 → 2 sessions on Acc2 → ...")
+        lines.append("  • `3` = 3 sessions per account phir rotate")
+        lines.append("\nSirf ek number bhejo (1-10):")
         
         await query.edit_message_text("\n".join(lines), parse_mode="Markdown")
         return WAIT_MULTI_QUIZ_LEVEL
@@ -5569,7 +5610,7 @@ async def multi_quiz_account_callback(update: Update, context: ContextTypes.DEFA
         InlineKeyboardButton("❌ Clear All", callback_data="mq_none"),
     ])
     kb.append([
-        InlineKeyboardButton("➡️ Next (Set Quiz Level)", callback_data="mq_next1"),
+        InlineKeyboardButton("➡️ Next (Set Sessions Count)", callback_data="mq_next1"),
     ])
 
     lines = [
@@ -5594,10 +5635,10 @@ async def multi_quiz_level(update: Update, context: ContextTypes.DEFAULT_TYPE):
         level = int(text)
         if level < 1:
             level = 1
-        if level > 50:
-            level = 50
+        if level > 10:
+            level = 10
     except Exception:
-        await update.message.reply_text("❌ Sirf ek valid number bhejo (1-50). Example: `5`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Sirf ek valid number bhejo (1-10). Example: `1` = 1 session per account", parse_mode="Markdown")
         return WAIT_MULTI_QUIZ_LEVEL
 
     context.user_data["quiz_level"] = level
@@ -5617,9 +5658,12 @@ async def multi_quiz_level(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bal = "?"
         lines.append(f"  {i}. {lbl} | {ph} | Bal: {bal}")
     
-    lines.append(f"\n🎯 Quiz Level (questions before rotate): {level}")
-    lines.append(f"🔄 Rotation: {level} questions on Acc1 → {level} on Acc2 → ... → back to Acc1")
-    lines.append(f"💾 Questions saved to MongoDB cache → AI usage kam hoga")
+    lines.append(f"\n🎯 Sessions per account before rotate: {level}")
+    lines.append(f"🔄 Rotation flow:")
+    lines.append(f"   Acc1 → {level} FULL session(s) (hearts=0 ya session end)")
+    lines.append(f"   → Acc2 → {level} FULL session(s)")
+    lines.append(f"   → Acc3 → ... → back to Acc1")
+    lines.append(f"💾 Questions + server correctIndex saved to MongoDB cache → AI usage kam hoga")
     lines.append("\nConfirm? Tap button below ya 'cancel' likho:")
 
     kb = InlineKeyboardMarkup([
@@ -5688,7 +5732,7 @@ async def multi_quiz_confirm_callback(update: Update, context: ContextTypes.DEFA
 
         msg = await query.message.reply_text(
             f"🚀 Multi-Account Quiz STARTING...\n"
-            f"Accounts: {len(selected)} | Level: {level} qs/account\n"
+            f"Accounts: {len(selected)} | Sessions/account: {level}\n"
             f"Initializing..."
         )
 
@@ -5711,7 +5755,7 @@ async def multi_quiz_confirm_callback(update: Update, context: ContextTypes.DEFA
                 bot=bot,
                 telegram_user_id=uid,
                 selected_accounts=list(selected),
-                questions_per_rotation=level,
+                sessions_per_account=level,
                 progress_callback=progress,
             )
 
@@ -5719,8 +5763,9 @@ async def multi_quiz_confirm_callback(update: Update, context: ContextTypes.DEFA
 
         summary_lines = ["🏁 **Multi-Account Quiz FINISHED**\n"]
         if isinstance(result, dict):
-            summary_lines.append(f"Total rotations completed: {result.get('rotations', 0)}")
-            summary_lines.append(f"Total questions solved: {result.get('total_questions', 0)}")
+            summary_lines.append(f"Total rotation cycles completed: {result.get('rotations', 0)}")
+            summary_lines.append(f"Total sessions: {result.get('total_sessions', 0)}")
+            summary_lines.append(f"Total questions (est.): ~{result.get('total_questions', 0)}")
             summary_lines.append(f"Total coins earned: ~{result.get('total_coins', 0)}")
             summary_lines.append("")
             per_acc = result.get("per_account", {})
@@ -5728,7 +5773,7 @@ async def multi_quiz_confirm_callback(update: Update, context: ContextTypes.DEFA
                 summary_lines.append("📊 **Per-Account Summary:**")
                 for lbl, info in per_acc.items():
                     summary_lines.append(
-                        f"  • {lbl}: {info.get('questions', 0)} qs | +{info.get('coins', 0)} coins | Bal: {info.get('balance', '?')}"
+                        f"  • {lbl}: {info.get('sessions', 0)} sessions | {info.get('questions', 0)} qs | +{info.get('coins', 0)} coins | Bal: {info.get('balance', '?')}"
                     )
         else:
             summary_lines.append(f"Result: {result}")
@@ -5751,7 +5796,7 @@ def run_multi_account_quiz(
     bot,
     telegram_user_id=None,
     selected_accounts=None,
-    questions_per_rotation=5,
+    sessions_per_account=1,
     progress_callback=None,
     max_rotations=None,
 ):
@@ -5770,6 +5815,7 @@ def run_multi_account_quiz(
 
     total_questions_global = 0
     total_coins_global = 0
+    total_sessions_global = 0
     rotations_done = 0
     per_account_summary = {}
 
@@ -5778,24 +5824,26 @@ def run_multi_account_quiz(
         per_account_summary[lbl] = {
             "questions": 0,
             "coins": 0,
+            "sessions": 0,
             "balance": acc.get("_cached_balance", "?"),
             "rotations": 0,
         }
 
     if max_rotations is None:
-        max_rotations = max(1, int(15 / max(1, len(selected_accounts))))
+        max_rotations = max(1, int(10 / max(1, len(selected_accounts) * max(1, sessions_per_account))))
         max_rotations = min(max_rotations, 5)
 
     log(
         f"🚀 STARTED\n"
         f"Accounts: {len(selected_accounts)}\n"
-        f"Rotation size: {questions_per_rotation} questions/account\n"
-        f"Max rotations: {max_rotations}\n"
+        f"Sessions per account: {sessions_per_account}\n"
+        f"Max rotation cycles: {max_rotations}\n"
+        f"Flow: Acc1 x{sessions_per_account} session(s) → Acc2 x{sessions_per_account} → ... → back to Acc1\n"
         f"Accounts order: {' → '.join(selected_accounts)}\n"
     )
 
     for rot_num in range(1, max_rotations + 1):
-        log(f"--- 🔄 Rotation {rot_num}/{max_rotations} ---")
+        log(f"--- 🔄 Rotation Cycle {rot_num}/{max_rotations} ---")
         rotations_done += 1
 
         stop_all = False
@@ -5826,12 +5874,12 @@ def run_multi_account_quiz(
                 per_account_summary[lbl]["balance"] = bal_before
                 continue
 
-            q_remaining = questions_per_rotation
-            while q_remaining > 0 and not stop_all:
-                this_session_q = min(q_remaining, 10)
+            info = per_account_summary[lbl]
+            acc_sess_done = 0
+            while acc_sess_done < sessions_per_account and not stop_all:
                 log(
-                    f"   🎯 Session target: {this_session_q} questions "
-                    f"(remaining this rotation: {q_remaining})"
+                    f"   🎯 Session {acc_sess_done+1}/{sessions_per_account} on this account "
+                    f"(FULL session — hearts=0 / session end tak — no question limit)"
                 )
 
                 try:
@@ -5840,7 +5888,6 @@ def run_multi_account_quiz(
                         question_delay=QUIZ_QUESTION_DELAY,
                         progress_callback=progress_callback,
                         telegram_user_id=telegram_user_id,
-                        max_questions_per_session=this_session_q,
                     )
                 except Exception as e:
                     log(f"   ❌ Quiz exception: {e}")
@@ -5849,28 +5896,28 @@ def run_multi_account_quiz(
                 if isinstance(result, dict) and "error" in result:
                     err = result["error"]
                     log(f"   ⚠️ Quiz stopped: {err}")
-                    if "exhausted" in str(err).lower() or "exhausted" in str(err).lower():
+                    if "exhausted" in str(err).lower() or "daily" in str(err).lower():
                         stop_all = True
                     break
 
                 sess_q = 0
                 sess_coins = 0
+                real_sessions = 0
                 if isinstance(result, dict):
-                    sess_q = (
-                        int(result.get("sessions", 0)) * this_session_q
-                        if result.get("sessions")
-                        else 0
-                    )
+                    real_sessions = int(result.get("sessions", 0) or 0)
                     sess_coins = int(result.get("total_coins", 0) or 0)
+                    if real_sessions > 0:
+                        sess_q = max(1, int(real_sessions * 5))
 
-                if sess_q == 0:
-                    sess_q = this_session_q
+                if real_sessions == 0:
+                    real_sessions = 1
 
+                acc_sess_done += real_sessions
+                total_sessions_global += real_sessions
                 total_questions_global += sess_q
                 total_coins_global += sess_coins
-                q_remaining -= sess_q
 
-                info = per_account_summary[lbl]
+                info["sessions"] += real_sessions
                 info["questions"] += sess_q
                 info["coins"] += sess_coins
                 info["rotations"] += 1
@@ -5883,11 +5930,17 @@ def run_multi_account_quiz(
 
                 log(
                     f"   ✅ Session done: {sess_q} qs | +{sess_coins} coins | "
-                    f"Bal: {info.get('balance', '?')}"
+                    f"Bal: {info.get('balance', '?')} | "
+                    f"Sessions on this acc: {info['sessions']}/{sessions_per_account}"
                 )
 
-                if total_questions_global and total_questions_global % 10 == 0:
+                if total_sessions_global and total_sessions_global % 5 == 0:
                     short_sleep(random.randint(800, 2500))
+
+                if acc_sess_done < sessions_per_account and not stop_all:
+                    inter_s_s = random.uniform(2.0, 8.0)
+                    log(f"   ⏸️ Next session on same account in {inter_s_s:.1f}s...")
+                    time.sleep(inter_s_s)
 
             try:
                 bot._store_current_account(label=lbl)
@@ -5901,13 +5954,14 @@ def run_multi_account_quiz(
 
         if not stop_all and rot_num < max_rotations:
             cool_s = random.uniform(3.0, 10.0)
-            log(f"⏸️ Rotation {rot_num} done. Cool-off {cool_s:.1f}s before next rotation...")
+            log(f"⏸️ Rotation Cycle {rot_num} done. Cool-off {cool_s:.1f}s before next cycle...")
             time.sleep(cool_s)
 
     final_summary = (
         f"🏁 FINISHED\n"
-        f"Rotations: {rotations_done}\n"
-        f"Total questions: {total_questions_global}\n"
+        f"Rotation cycles: {rotations_done}\n"
+        f"Total sessions: {total_sessions_global}\n"
+        f"Total questions: ~{total_questions_global}\n"
         f"Total coins: ~{total_coins_global}\n"
         f"Per-account stats logged above."
     )
@@ -5915,6 +5969,7 @@ def run_multi_account_quiz(
 
     return {
         "rotations": rotations_done,
+        "total_sessions": total_sessions_global,
         "total_questions": total_questions_global,
         "total_coins": total_coins_global,
         "per_account": per_account_summary,
