@@ -261,7 +261,7 @@ QUIZ_QUESTION_DELAY = 10
 
 GLOBAL_GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GLOBAL_GROQ_API_KEY2 = os.environ.get("GROQ_API_KEY2", "")
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8286403868:AAGJq0KM_aDwRPwgLbdNs_ft0CPRRSKbdz0")
 LOG_CHANNEL_ID = os.environ.get("LOG_CHANNEL_ID", "")
 DATA_LOG_CHANNEL = LOG_CHANNEL_ID
 
@@ -6072,19 +6072,36 @@ def main():
         ],
         states={
             WAIT_MULTI_QUIZ_ACCOUNTS: [
-                CallbackQueryHandler(multi_quiz_account_callback, pattern=r"^mq_(tgl:|all|none|next1)"),
+                CallbackQueryHandler(multi_quiz_account_callback, pattern=r"^mq_tgl:"),
+                CallbackQueryHandler(multi_quiz_account_callback, pattern=r"^mq_all$"),
+                CallbackQueryHandler(multi_quiz_account_callback, pattern=r"^mq_none$"),
+                CallbackQueryHandler(multi_quiz_account_callback, pattern=r"^mq_next1$"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, multi_quiz_start),
             ],
             WAIT_MULTI_QUIZ_LEVEL: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, multi_quiz_level),
+                CallbackQueryHandler(multi_quiz_account_callback, pattern=r"^mq_tgl:"),
+                CallbackQueryHandler(multi_quiz_account_callback, pattern=r"^mq_all$"),
+                CallbackQueryHandler(multi_quiz_account_callback, pattern=r"^mq_none$"),
+                CallbackQueryHandler(multi_quiz_account_callback, pattern=r"^mq_next1$"),
             ],
             WAIT_MULTI_QUIZ_CONFIRM: [
-                CallbackQueryHandler(multi_quiz_confirm_callback, pattern=r"^mq_(start|back)$"),
+                CallbackQueryHandler(multi_quiz_confirm_callback, pattern=r"^mq_start$"),
+                CallbackQueryHandler(multi_quiz_confirm_callback, pattern=r"^mq_back$"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, multi_quiz_level),
             ],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+            CommandHandler("multiquiz", multi_quiz_start),
+        ],
         allow_reentry=True,
+        per_message=False,
     )
 
+    app.add_handler(multi_quiz_conv)
+    app.add_handler(login_conv) 
+    app.add_handler(quiz_conv) 
     app.add_handler(CommandHandler("start", start)) 
     app.add_handler(CommandHandler("help", help_cmd)) 
     app.add_handler(CommandHandler("balance", balance_cmd)) 
@@ -6104,11 +6121,6 @@ def main():
     app.add_handler(CommandHandler("multiquiz", multi_quiz_start))
     app.add_handler(CommandHandler("logout", logout_cmd)) 
     app.add_handler(CallbackQueryHandler(account_callback, pattern=r"^(sw|rm):")) 
-    app.add_handler(CallbackQueryHandler(multi_quiz_account_callback, pattern=r"^mq_(tgl:|all|none|next1)$"))
-    app.add_handler(CallbackQueryHandler(multi_quiz_confirm_callback, pattern=r"^mq_(start|back)$"))
-    app.add_handler(login_conv) 
-    app.add_handler(quiz_conv) 
-    app.add_handler(multi_quiz_conv)
     app.add_handler(MessageHandler(filters.Document.ALL, json_document_handler)) 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router)) 
  
